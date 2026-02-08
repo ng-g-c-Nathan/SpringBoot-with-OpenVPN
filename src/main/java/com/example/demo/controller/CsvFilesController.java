@@ -1,5 +1,5 @@
 package com.example.demo.controller;
-import com.example.demo.domain.CsvFile;
+import com.example.demo.domain.PcapInfo;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.List;
 import java.util.stream.Stream;
 
 @RestController
@@ -20,19 +21,18 @@ public class CsvFilesController {
     private String TRAFFIC_DIR;
 
 
-
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Stream<CsvFile>> listCsvFiles() {
+    public ResponseEntity<List<PcapInfo>> listPcapFiles() {
         Path dirPath = Paths.get(TRAFFIC_DIR);
+        Path csvDirPath = Paths.get(TRAFFIC_DIR);
 
         if (!Files.exists(dirPath) || !Files.isDirectory(dirPath)) {
             return ResponseEntity.status(404).build();
         }
 
         try {
-            // Stream de archivos
-            Stream<CsvFile> csvStream = Files.list(dirPath)
-                    .filter(path -> path.toString().endsWith(".csv"))
+            List<PcapInfo> pcapList = Files.list(dirPath)
+                    .filter(path -> path.toString().endsWith(".pcap"))
                     .sorted((a, b) -> {
                         try {
                             return Long.compare(Files.getLastModifiedTime(b).toMillis(),
@@ -44,23 +44,29 @@ public class CsvFilesController {
                     .map(path -> {
                         try {
                             File file = path.toFile();
-                            boolean csvExists = Files.exists(Paths.get(file.getAbsolutePath()));
-                            return new CsvFile(
+                            String csvFileName = file.getName().replaceAll("\\.pcap$", ".csv");
+                            Path csvPath = csvDirPath.resolve(csvFileName);
+                            boolean csvExists = Files.exists(csvPath);
+
+                            return new PcapInfo(
                                     file.getName(),
                                     Files.getLastModifiedTime(path).toInstant(),
                                     file.length(),
-                                    csvExists
+                                    csvExists,
+                                    csvExists ? csvPath.toString() : null
                             );
                         } catch (IOException e) {
                             return null;
                         }
                     })
-                    .filter(info -> info != null); // filtra errores
+                    .filter(info -> info != null)
+                    .toList();
 
-            return ResponseEntity.ok().body(csvStream);
+            return ResponseEntity.ok(pcapList);
 
         } catch (IOException e) {
             return ResponseEntity.status(500).build();
         }
     }
+
 }
