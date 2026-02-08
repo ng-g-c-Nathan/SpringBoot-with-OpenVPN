@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-
+@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/csv_files")
 public class CsvFilesController {
@@ -127,7 +127,7 @@ public class CsvFilesController {
         }
     }
 
-    @PostMapping("/reparar/{filename}")
+    @PostMapping("/reparar/{filename:.+}")
     public ResponseEntity<?> reparar(@PathVariable String filename) {
 
         Path pcapPath = Paths.get(TRAFFIC_DIR).resolve(filename);
