@@ -16,27 +16,32 @@ public class DashboardController {
     public ResponseEntity<Map<String, Object>> getDashboardStatus() {
         Map<String, Object> response = new HashMap<>();
         try {
-            // Ejecutar comando de sistema
-            ProcessBuilder pb = new ProcessBuilder("systemctl", "status", "openvpn@server");
+            ProcessBuilder pb = new ProcessBuilder("systemctl", "show", "openvpn@server", "--no-page");
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
-            // Leer la salida
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            StringBuilder output = new StringBuilder();
             String line;
+            Map<String, String> serviceInfo = new HashMap<>();
+
             while ((line = reader.readLine()) != null) {
-                output.append(line).append("\n");
+                if (line.contains("=")) {
+                    String[] parts = line.split("=", 2);
+                    serviceInfo.put(parts[0], parts[1]);
+                }
             }
 
             int exitCode = process.waitFor();
 
             if (exitCode == 0) {
                 response.put("timestamp", LocalDateTime.now().toString());
-                response.put("openvpn_status", output.toString());
+                response.put("active", serviceInfo.getOrDefault("ActiveState", "unknown"));
+                response.put("since", serviceInfo.getOrDefault("ActiveEnterTimestamp", "unknown"));
+                response.put("main_pid", serviceInfo.getOrDefault("MainPID", "0"));
+                response.put("status_message", serviceInfo.getOrDefault("StatusText", ""));
                 return ResponseEntity.ok(response);
             } else {
-                response.put("error", output.toString());
+                response.put("error", "No se pudo obtener el estado del servicio");
                 return ResponseEntity.status(500).body(response);
             }
 
