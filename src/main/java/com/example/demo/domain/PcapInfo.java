@@ -6,17 +6,17 @@ public class PcapInfo {
     private String name;
     private Instant lastModified;
     private long size;
-    private boolean csvExists;
+    private String csvStatus;
     private String csvPath;
 
-
-    public PcapInfo(String name, Instant lastModified, long size, boolean csvExists, String csvPath) {
+    public PcapInfo(String name, Instant lastModified, long size, String csvStatus, String csvPath) {
         this.name = name;
         this.lastModified = lastModified;
         this.size = size;
-        this.csvExists = csvExists;
+        this.csvStatus = csvStatus;
         this.csvPath = csvPath;
     }
+
 
     public String getName() {
         return name;
@@ -42,12 +42,12 @@ public class PcapInfo {
         this.size = size;
     }
 
-    public boolean isCsvExists() {
-        return csvExists;
+    public String getCsvStatus() {
+        return csvStatus;
     }
 
-    public void setCsvExists(boolean csvExists) {
-        this.csvExists = csvExists;
+    public void setCsvStatus(String csvStatus) {
+        this.csvStatus = csvStatus;
     }
 
     public String getCsvPath() {
