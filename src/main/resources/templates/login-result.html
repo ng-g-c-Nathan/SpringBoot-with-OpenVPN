@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Login result</title>
+</head>
+<body>
+
+<h2>Resultado</h2>
+
+<div th:if="${ok}">
+    Login correcto
+</div>
+
+<div th:if="${ok == false}">
+    Login incorrecto
+</div>
+
+<div th:if="${error}">
+    Error interno
+</div>
+
+<a th:href="@{/login}">Volver</a>
+
+</body>
+</html>
