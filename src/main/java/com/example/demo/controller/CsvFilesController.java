@@ -25,6 +25,20 @@ public class CsvFilesController {
     private String REG_DIR;
 
 
+    private Path findGeneratedCsv(Path dir, String pcapFilename) throws IOException {
+
+        String base = pcapFilename.replaceFirst("\\.pcap$", "");
+
+        try (Stream<Path> s = Files.list(dir)) {
+            return s
+                    .filter(p -> p.getFileName().toString().startsWith(base))
+                    .filter(p -> p.getFileName().toString().endsWith(".csv"))
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+
     private double extractMinutesFromFilename(String filename) {
 
         Pattern p = Pattern.compile("\\((\\d+(?:\\.\\d+)?)_minutes\\)");
@@ -49,25 +63,25 @@ public class CsvFilesController {
         }
     }
 
-    private String resolveCsvStatus(Path pcapPath, Path dir) throws IOException {
+    private String resolveCsvStatus(Path pcapPath, Path csvDir) throws IOException {
 
-        String filename = pcapPath.getFileName().toString();
+        Path csv = findGeneratedCsv(csvDir, pcapPath.getFileName().toString());
 
-        if (existsGeneratedCsv(dir, filename)) {
+        if (csv != null) {
             return "true";
         }
+
+        String filename = pcapPath.getFileName().toString();
 
         double minutes = extractMinutesFromFilename(filename);
 
         if (minutes <= 0) {
-            // si no se puede leer el tiempo, lo dejamos en pendiente
             return "pending";
         }
 
-        long tripleMillis = (long)(minutes * 3 * 60_000);
+        long tripleMillis = (long) (minutes * 3 * 60_000);
 
         long lastModified = Files.getLastModifiedTime(pcapPath).toMillis();
-
         long now = System.currentTimeMillis();
 
         if (now - lastModified > tripleMillis) {
@@ -76,6 +90,7 @@ public class CsvFilesController {
 
         return "pending";
     }
+
 
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
@@ -102,20 +117,26 @@ public class CsvFilesController {
                         try {
                             File file = path.toFile();
 
+                            Path csv = findGeneratedCsv(csvDirPath, file.getName());
                             String status = resolveCsvStatus(path, csvDirPath);
+
+                            String csvPath = csv != null
+                                    ? csv.getFileName().toString()
+                                    : null;
 
                             return new PcapInfo(
                                     file.getName(),
                                     Files.getLastModifiedTime(path).toInstant(),
                                     file.length(),
                                     status,
-                                    null
+                                    csvPath
                             );
 
                         } catch (Exception e) {
                             return null;
                         }
                     })
+
 
                     .filter(info -> info != null)
                     .toList();
