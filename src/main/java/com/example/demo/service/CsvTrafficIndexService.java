@@ -28,7 +28,7 @@ public class CsvTrafficIndexService {
 
     private static final Pattern FILE_PATTERN =
             Pattern.compile(
-                    "traffic_(\\d{4}-\\d{2}-\\d{2})_.*_\\(([^_]+)_input\\)_\\(([^_]+)_output\\)\\.csv"
+                    "traffic_(\\d{4}-\\d{2}-\\d{2})_\\d{2}-\\d{2}-\\d{2}_\\([^)]*\\)_\\(([^)]+)_input\\)_\\(([^)]+)_output\\)\\.csv"
             );
 
     @PostConstruct
