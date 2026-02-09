@@ -12,7 +12,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
+@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/csv_files")
 public class CsvDownloadController {
