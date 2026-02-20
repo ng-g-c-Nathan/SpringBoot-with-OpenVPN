@@ -50,7 +50,7 @@ public class TrafficAnalysisController {
         }
 
         try {
-            analysisService.runAnalysis(request.getCSVFILE());
+            analysisService.runAnalysis(request.getCSVFILE(), request.getRange());
             return ResponseEntity.ok().build();
         } catch (Exception e) {
             return ResponseEntity.internalServerError()

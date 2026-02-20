@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Servicio AnalysisService
@@ -40,12 +42,10 @@ public class AnalysisService {
      * * @param filename Nombre del archivo CSV a procesar.
      * @throws Exception Si los archivos necesarios no existen o falla el arranque del proceso.
      */
-    public void runAnalysis(String filename) throws Exception {
+    public void runAnalysis(String filename, String range) throws Exception {
 
-        // --- NORMALIZACIÓN DE RUTA ---
         String rawPath = TRAFFIC_DIR;
 
-        // Corrección de path específica para la estructura de directorios del servidor
         if (rawPath.endsWith("KillSwitchdaily")) {
             rawPath = rawPath.replace(
                     "KillSwitchdaily",
@@ -53,7 +53,6 @@ public class AnalysisService {
             );
         }
 
-        // Aseguramos la extensión correcta del archivo
         if (!filename.toLowerCase().endsWith(".csv")) {
             filename += ".csv";
         }
@@ -64,7 +63,6 @@ public class AnalysisService {
             throw new RuntimeException("CSV no existe en la ruta: " + csvPath);
         }
 
-        // --- PREPARACIÓN DEL SCRIPT PYTHON ---
         Path pythonDir = Paths.get(PYTHON_PATH).toAbsolutePath();
         Path scriptPath = pythonDir.resolve(PYTHON_SCRIPT);
 
@@ -72,16 +70,37 @@ public class AnalysisService {
             throw new RuntimeException("Script de control no encontrado: " + scriptPath);
         }
 
-        ProcessBuilder pb = new ProcessBuilder(
-                "python",
-                scriptPath.toString(),
-                csvPath.toString()
-        );
+        List<String> command = new ArrayList<>();
+
+        command.add("python");
+        command.add(scriptPath.toString());
+        command.add(csvPath.toString());
+
+        // -----------------------------
+        // segundo parámetro
+        // -----------------------------
+        if (range != null && !range.isBlank()
+                && !range.equalsIgnoreCase("global")) {
+
+            String[] parts;
+
+            if (range.contains("_")) {
+                parts = range.split("_", 2);
+            } else {
+                parts = range.trim().split("\\s+");
+            }
+
+            if (parts.length == 2) {
+                command.add(parts[0]);
+                command.add(parts[1]);
+            }
+        }
+
+        ProcessBuilder pb = new ProcessBuilder(command);
 
         pb.directory(pythonDir.toFile());
         pb.redirectErrorStream(true);
 
-        // Se inicia el proceso en segundo plano (Fire and Forget)
         pb.start();
     }
 

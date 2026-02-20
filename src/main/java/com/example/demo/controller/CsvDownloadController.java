@@ -36,9 +36,13 @@ public class CsvDownloadController {
      */
     public static class CsvRequest {
         private String CSVFILE;
+        private String range;
 
         public String getCSVFILE() { return CSVFILE; }
         public void setCSVFILE(String CSVFILE) { this.CSVFILE = CSVFILE; }
+
+        public String getRange() { return range; }
+        public void setRange(String range) { this.range = range; }
     }
 
     // --- ENDPOINTS DE DESCARGA ---
