@@ -16,32 +16,28 @@ import java.util.stream.Stream;
 
 /**
  * Controlador CsvFilesController
- * * Gestiona el inventario de capturas de red (.pcap) y sus reportes procesados (.csv).
- * Este controlador es responsable de calcular el estado de procesamiento (pending, true, false)
- * basándose en el tiempo de vida de los archivos y coordinar la reparación/re-procesamiento.
+ *
+ * Gestiona el inventario de capturas de red (.pcap) y sus reportes (.csv).
+ * Si no existe ningún .pcap en el directorio, lista directamente los .csv
+ * disponibles (modo fallback).
  */
 @CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/csv_files")
 public class CsvFilesController {
 
-    // --- CONFIGURACIÓN DE RUTAS ---
-
-    /** Directorio donde se almacenan capturas y reportes */
     @Value("${traffic.dir}")
     private String TRAFFIC_DIR;
 
-    /** Ruta del script de Python encargado de procesar/reparar los archivos */
     @Value("${reg.script.path}")
     private String REG_DIR;
 
-    // --- MÉTODOS DE SOPORTE (LÓGICA INTERNA) ---
+    // -------------------------------------------------------------------
+    // MÉTODOS DE SOPORTE
+    // -------------------------------------------------------------------
 
     /**
-     * Busca un archivo CSV generado que coincida con el nombre base de un PCAP.
-     * @param dir Directorio de búsqueda.
-     * @param pcapFilename Nombre del archivo de captura original.
-     * @return Path del CSV encontrado o null si no existe.
+     * Busca el CSV generado que corresponde a un PCAP dado.
      */
     private Path findGeneratedCsv(Path dir, String pcapFilename) throws IOException {
         String base = pcapFilename.replaceFirst("\\.pcap$", "");
@@ -54,52 +50,50 @@ public class CsvFilesController {
     }
 
     /**
-     * Extrae el tiempo de captura (minutos) embebido en el nombre del archivo.
-     * Espera el formato: "nombre(valor_minutes).pcap"
-     * @return Valor numérico de minutos o -1 si no hay coincidencia.
+     * Extrae los minutos de captura embebidos en el nombre del archivo.
+     * Formato esperado: "nombre_(X_minutes).pcap"
      */
     private double extractMinutesFromFilename(String filename) {
         Pattern p = Pattern.compile("\\((\\d+(?:\\.\\d+)?)_minutes\\)");
         Matcher m = p.matcher(filename);
-        if (m.find()) {
-            return Double.parseDouble(m.group(1));
-        }
-        return -1;
+        return m.find() ? Double.parseDouble(m.group(1)) : -1;
     }
 
     /**
-     * Determina el estado de procesamiento de un archivo PCAP.
-     * * Lógica de estados:
-     * - 'true': El CSV ya existe.
-     * - 'pending': El proceso aún está en tiempo esperado de ejecución.
-     * - 'false': El tiempo esperado excedió (3x duración) y el CSV no aparece.
+     * Determina el estado de procesamiento de un PCAP:
+     * - "true"    → CSV ya existe
+     * - "pending" → aún dentro del tiempo esperado
+     * - "false"   → tiempo excedido sin CSV
      */
     private String resolveCsvStatus(Path pcapPath, Path csvDir) throws IOException {
         Path csv = findGeneratedCsv(csvDir, pcapPath.getFileName().toString());
         if (csv != null) return "true";
 
-        String filename = pcapPath.getFileName().toString();
-        double minutes = extractMinutesFromFilename(filename);
-
+        double minutes = extractMinutesFromFilename(pcapPath.getFileName().toString());
         if (minutes <= 0) return "pending";
 
-        // Umbral de tolerancia: 3 veces la duración de la captura
         long tripleMillis = (long) (minutes * 3 * 60_000);
         long lastModified = Files.getLastModifiedTime(pcapPath).toMillis();
-        long now = System.currentTimeMillis();
 
-        return (now - lastModified > tripleMillis) ? "false" : "pending";
+        return (System.currentTimeMillis() - lastModified > tripleMillis) ? "false" : "pending";
     }
 
-    // --- ENDPOINTS PRINCIPALES ---
+    // -------------------------------------------------------------------
+    // ENDPOINTS
+    // -------------------------------------------------------------------
 
     /**
-     * Lista todos los archivos PCAP del servidor ordenados por fecha de modificación.
-     * * Calcula dinámicamente el estado de cada archivo para informar al frontend.
-     * @return Lista de objetos {@link PcapInfo} con metadatos y estado.
+     * Lista archivos del directorio de tráfico.
+     *
+     * Comportamiento:
+     *   1. Si hay archivos .pcap → lista PCAPs con su estado de procesamiento.
+     *   2. Si NO hay ningún .pcap → lista los .csv directamente (modo fallback).
+     *
+     * En el modo fallback, el campo csvFile contiene el nombre del .csv y
+     * el status siempre es "true" (el CSV ya existe por definición).
      */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<List<PcapInfo>> listPcapFiles() {
+    public ResponseEntity<List<PcapInfo>> listFiles() {
         Path dirPath = Paths.get(TRAFFIC_DIR);
 
         if (!Files.exists(dirPath) || !Files.isDirectory(dirPath)) {
@@ -107,43 +101,79 @@ public class CsvFilesController {
         }
 
         try {
-            List<PcapInfo> pcapList = Files.list(dirPath)
-                    .filter(path -> path.toString().endsWith(".pcap"))
-                    .sorted((a, b) -> {
-                        try {
-                            return Long.compare(Files.getLastModifiedTime(b).toMillis(),
-                                    Files.getLastModifiedTime(a).toMillis());
-                        } catch (IOException e) { return 0; }
-                    })
-                    .map(path -> {
-                        try {
-                            File file = path.toFile();
-                            Path csv = findGeneratedCsv(dirPath, file.getName());
-                            String status = resolveCsvStatus(path, dirPath);
+            // Contar cuántos PCAPs hay en el directorio
+            long pcapCount;
+            try (Stream<Path> s = Files.list(dirPath)) {
+                pcapCount = s.filter(p -> p.toString().endsWith(".pcap")).count();
+            }
 
-                            return new PcapInfo(
-                                    file.getName(),
-                                    Files.getLastModifiedTime(path).toInstant(),
-                                    file.length(),
-                                    status,
-                                    csv != null ? csv.getFileName().toString() : null
-                            );
-                        } catch (Exception e) { return null; }
-                    })
-                    .filter(info -> info != null)
-                    .toList();
+            if (pcapCount > 0) {
+                // ── MODO NORMAL: listar PCAPs ──
+                List<PcapInfo> list = Files.list(dirPath)
+                        .filter(p -> p.toString().endsWith(".pcap"))
+                        .sorted((a, b) -> {
+                            try {
+                                return Long.compare(
+                                        Files.getLastModifiedTime(b).toMillis(),
+                                        Files.getLastModifiedTime(a).toMillis());
+                            } catch (IOException e) { return 0; }
+                        })
+                        .map(path -> {
+                            try {
+                                File file = path.toFile();
+                                Path csv   = findGeneratedCsv(dirPath, file.getName());
+                                String status = resolveCsvStatus(path, dirPath);
+                                return new PcapInfo(
+                                        file.getName(),
+                                        Files.getLastModifiedTime(path).toInstant(),
+                                        file.length(),
+                                        status,
+                                        csv != null ? csv.getFileName().toString() : null
+                                );
+                            } catch (Exception e) { return null; }
+                        })
+                        .filter(info -> info != null)
+                        .toList();
 
-            return ResponseEntity.ok(pcapList);
+                return ResponseEntity.ok(list);
+
+            } else {
+                // ── MODO FALLBACK: no hay PCAPs, listar CSVs directamente ──
+                List<PcapInfo> list = Files.list(dirPath)
+                        .filter(p -> p.toString().endsWith(".csv"))
+                        .sorted((a, b) -> {
+                            try {
+                                return Long.compare(
+                                        Files.getLastModifiedTime(b).toMillis(),
+                                        Files.getLastModifiedTime(a).toMillis());
+                            } catch (IOException e) { return 0; }
+                        })
+                        .map(path -> {
+                            try {
+                                File file = path.toFile();
+                                String csvName = file.getName();
+                                return new PcapInfo(
+                                        csvName,                                    // name (el CSV hace de PCAP)
+                                        Files.getLastModifiedTime(path).toInstant(),
+                                        file.length(),
+                                        "true",                                     // ya existe, siempre true
+                                        csvName                                     // csvFile apunta al mismo
+                                );
+                            } catch (Exception e) { return null; }
+                        })
+                        .filter(info -> info != null)
+                        .toList();
+
+                return ResponseEntity.ok(list);
+            }
+
         } catch (IOException e) {
             return ResponseEntity.status(500).build();
         }
     }
 
     /**
-     * Dispara el re-procesamiento (reparación) de un archivo específico.
-     * * Ejecuta un script externo de Python en modo asíncrono (Fire and Forget).
-     * @param filename Nombre del archivo PCAP a procesar.
-     * @return 202 Accepted indicando que la tarea ha comenzado.
+     * Dispara el re-procesamiento de un PCAP específico (fire & forget).
      */
     @PostMapping("/reparar/{filename:.+}")
     public ResponseEntity<?> reparar(@PathVariable String filename) {
@@ -154,23 +184,16 @@ public class CsvFilesController {
         }
 
         try {
-            // Dirección IP estática del servidor de destino para el análisis
             String serverIp = "10.0.0.8";
 
-            ProcessBuilder pb = new ProcessBuilder(
-                    "python3",
-                    REG_DIR,
-                    pcapPath.toString(),
-                    serverIp
-            );
-
+            ProcessBuilder pb = new ProcessBuilder("python3", REG_DIR, pcapPath.toString(), serverIp);
             pb.redirectErrorStream(true);
-            pb.start(); // Se inicia pero no se espera a su finalización (proceso en background)
+            pb.start();
 
             return ResponseEntity.accepted().build();
 
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Error ejecutando script de reparación: " + e.getMessage());
+            return ResponseEntity.status(500).body("Error ejecutando script: " + e.getMessage());
         }
     }
 }

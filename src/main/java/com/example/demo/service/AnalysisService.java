@@ -45,7 +45,7 @@ public class AnalysisService {
     public void runAnalysis(String filename, String range) throws Exception {
 
         String rawPath = TRAFFIC_DIR;
-
+        //System.out.println(rawPath);
         if (rawPath.endsWith("KillSwitchdaily")) {
             rawPath = rawPath.replace(
                     "KillSwitchdaily",
