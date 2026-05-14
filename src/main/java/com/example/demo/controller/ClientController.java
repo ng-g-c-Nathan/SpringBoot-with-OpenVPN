@@ -1,7 +1,10 @@
 package com.example.demo.controller;
 
 import com.example.demo.domain.Client;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 
@@ -13,72 +16,68 @@ import java.util.List;
 
 /**
  * Controlador ClientController
- * * Se encarga de monitorear y listar los clientes conectados al servidor VPN.
- * Extrae información en tiempo real directamente del archivo de estado de OpenVPN,
- * transformando registros planos en objetos de dominio estructurados.
+ *
+ * Monitorea y lista los clientes conectados al servidor VPN.
+ * Lee en tiempo real el archivo de estado de OpenVPN.
  */
 @RestController
+@RequestMapping("/api/clients")
+@CrossOrigin(origins = "*")
 public class ClientController {
 
-    // --- CONFIGURACIÓN DE RUTAS ---
-
-    /** Ruta del archivo de estado generado por OpenVPN (estándar en sistemas Linux) */
-    private static final String STATUS_FILE = "/etc/openvpn/openvpn-status.log";
-
-    // --- ENDPOINTS DE MONITOREO ---
+    @Value("${openvpn.status.file:/etc/openvpn/openvpn-status.log}")
+    private String STATUS_FILE;
 
     /**
-     * Obtiene la lista de clientes actualmente conectados a la VPN.
-     * * Lee el archivo de logs, filtra las líneas con el prefijo 'CLIENT_LIST'
-     * y mapea los campos de tráfico y conexión.
-     * * @return ResponseEntity con la lista de objetos {@link Client} o mensaje de error si el log no es accesible.
+     * Lista los clientes actualmente conectados a la VPN.
+     * Formato OpenVPN status v1:
+     *   CLIENT_LIST,CommonName,RealAddress,VirtualAddress,BytesReceived,BytesSent,ConnectedSince,ConnectedSinceT,Username,ClientID,PeerID
      */
-    @GetMapping("/api/clients")
+    @GetMapping
     public ResponseEntity<?> listClients() {
-
-        // --- VERIFICACIÓN DE ARCHIVO ---
 
         File file = new File(STATUS_FILE);
         if (!file.exists()) {
-            return ResponseEntity
-                    .status(404)
-                    .body("Archivo openvpn-status.log no encontrado en la ruta especificada.");
+            return ResponseEntity.status(404)
+                    .body("openvpn-status.log no encontrado — ¿está OpenVPN corriendo?");
         }
-
-        // --- PROCESAMIENTO Y PARSING DE DATA ---
 
         List<Client> clients = new ArrayList<>();
 
         try (BufferedReader br = new BufferedReader(new FileReader(file))) {
             String line;
             while ((line = br.readLine()) != null) {
-                // Filtramos únicamente las líneas que contienen datos de clientes activos
-                if (line.startsWith("CLIENT_LIST")) {
-                    String[] parts = line.split(",");
+                if (!line.startsWith("CLIENT_LIST")) continue;
 
-                    // Verificamos que la línea tenga las columnas mínimas requeridas por el estándar OpenVPN
-                    if (parts.length >= 6) {
-                        Client c = new Client(
-                                parts[1],                 // Common Name (Usuario)
-                                parts[2],                 // Real Address (IP origen)
-                                "",                       // Virtual Address (Opcional)
-                                Long.parseLong(parts[3]), // Bytes Received
-                                Long.parseLong(parts[4]), // Bytes Sent
-                                parts[5],                 // Connected Since (Timestamp)
-                                "online"                  // Estado operativo
-                        );
-                        clients.add(c);
-                    }
-                }
+                String[] parts = line.split(",");
+                if (parts.length < 6) continue;
+
+                // Ignorar la línea de cabecera
+                if (parts[1].equalsIgnoreCase("Common Name")) continue;
+
+                clients.add(new Client(
+                        parts[1],                  // Common Name
+                        parts[2],                  // Real Address (IP:puerto)
+                        parts.length > 3 ? parts[3] : "",  // Virtual Address
+                        parseLong(parts, 4),       // Bytes Received
+                        parseLong(parts, 5),       // Bytes Sent
+                        parts.length > 6 ? parts[6] : "", // Connected Since
+                        "online"
+                ));
             }
         } catch (Exception e) {
-            // Error de lectura de entrada/salida o formato de número
-            return ResponseEntity
-                    .status(500)
-                    .body("Error procesando el archivo de estado: " + e.getMessage());
+            return ResponseEntity.status(500)
+                    .body("Error leyendo status file: " + e.getMessage());
         }
 
-        // Retornamos la colección de clientes mapeados
         return ResponseEntity.ok(clients);
+    }
+
+    private long parseLong(String[] parts, int index) {
+        try {
+            return Long.parseLong(parts[index].trim());
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 }
